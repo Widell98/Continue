@@ -1,4 +1,296 @@
-Always read .continue/agents.md before responding.
-Then read .continue/domains.md to identify which domain the question belongs to.
-Then read the matching domain file for specific guidelines.
-We use C# .NET MVVM. Follow all patterns defined in domain files.
+You are an AI assistant for a large C# .NET MVVM codebase.
+Always follow ALL rules below without being asked.
+
+═══════════════════════════════════════════
+GLOBAL RULES
+═══════════════════════════════════════════
+- English in code, Swedish in comments
+- Constructor injection only — no static classes or ServiceLocator
+- Never use async void — except event handlers
+- Never call .Result or .Wait() on any Task
+- Never use Thread.Sleep or blocking calls
+- Never instantiate services inside ViewModel: new ConcreteService()
+- Never use MessageBox.Show or any direct UI calls in ViewModel
+
+═══════════════════════════════════════════
+VIEWMODEL RULES
+═══════════════════════════════════════════
+All ViewModels must:
+- Inherit from BaseViewModel
+- Use SetProperty(ref _field, value) for every property
+- Inject all services via constructor
+- Implement IDisposable if subscribing to events
+
+BaseViewModel pattern:
+public abstract class BaseViewModel : INotifyPropertyChanged, IDisposable
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    public virtual void Dispose() { }
+}
+
+Property rules:
+- Backing fields: _camelCase
+- Public properties: PascalCase
+- If property change affects canExecute: call NotifyCanExecuteChanged in setter
+- If property change affects computed property: call OnPropertyChanged(nameof(ComputedProp))
+- Computed properties have no backing field
+
+IsLoading pattern — always use this exact pattern:
+private bool _isLoading;
+public bool IsLoading
+{
+    get => _isLoading;
+    set
+    {
+        if (SetProperty(ref _isLoading, value))
+        {
+            LoadCommand.NotifyCanExecuteChanged();
+            DeleteCommand.NotifyCanExecuteChanged();
+            SaveCommand.NotifyCanExecuteChanged();
+        }
+    }
+}
+
+═══════════════════════════════════════════
+COMMAND RULES
+═══════════════════════════════════════════
+- Async operations: always AsyncRelayCommand or AsyncRelayCommand<T>
+- Sync operations: RelayCommand or RelayCommand<T>
+- Delete operations: always AsyncRelayCommand<T> — never RelayCommand
+- Navigate operations: RelayCommand<T> where T is the entity type
+- canExecute on async commands must always check () => !IsLoading
+
+COMMAND SYNTAX — never deviate from this:
+// Sync
+DeleteCommand = new RelayCommand<Order>(DeleteOrder, canExecute: o => o is not null);
+
+// Async
+LoadCommand = new AsyncRelayCommand(LoadAsync, canExecute: () => !IsLoading);
+
+// Async with parameter
+DeleteCommand = new AsyncRelayCommand<Order>(DeleteOrderAsync, canExecute: o => o is not null && !IsLoading);
+
+NEVER generate this syntax:
+new RelayCommand(Order someParam)       — WRONG
+new AsyncRelayCommand(Order someParam) — WRONG
+
+ASYNC METHOD PATTERN — always use this exact pattern:
+private async Task LoadAsync(CancellationToken ct)
+{
+    IsLoading = true;
+    try
+    {
+        var result = await _service.GetAsync(ct);
+        Items = new ObservableCollection<ItemViewModel>(result.Select(x => new ItemViewModel(x)));
+    }
+    catch (OperationCanceledException) { }
+    catch (Exception ex)
+    {
+        ErrorMessage = ex.Message;
+    }
+    finally
+    {
+        IsLoading = false;
+    }
+}
+
+═══════════════════════════════════════════
+COLLECTION RULES
+═══════════════════════════════════════════
+- Always ObservableCollection — never List, IEnumerable or array for UI-bound data
+- Replace entire collection instead of adding in loop:
+
+WRONG:
+foreach (var item in newItems)
+    Orders.Add(new OrderViewModel(item));
+
+CORRECT:
+Orders = new ObservableCollection<OrderViewModel>(
+    newItems.Select(x => new OrderViewModel(x))
+);
+
+- Search must always call service — never filter local ObservableCollection directly
+
+═══════════════════════════════════════════
+NAVIGATION RULES
+═══════════════════════════════════════════
+- Always via INavigationService — never Frame.Navigate or direct Window references
+- Pattern:
+private void OpenDetail(Order? order)
+{
+    if (order is null) return;
+    _navigation.NavigateTo<OrderDetailViewModel>(order.Id);
+}
+
+═══════════════════════════════════════════
+NAMING CONVENTIONS
+═══════════════════════════════════════════
+- ViewModel class:     [Feature]ViewModel          ex: OrderListViewModel
+- Command:             [Verb][Noun]Command          ex: DeleteOrderCommand
+- Async method:        [Verb][Noun]Async            ex: LoadOrdersAsync
+- Backing field:       _camelCase                   ex: _isLoading
+- Service field:       _[name]Service               ex: _orderService
+- Design-time class:   [Feature]ViewModelDesign     ex: OrderListViewModelDesign
+
+═══════════════════════════════════════════
+DESIGN-TIME DATA RULES
+═══════════════════════════════════════════
+Every ViewModel must have a design-time variant:
+
+public class OrderListViewModelDesign : OrderListViewModel
+{
+    public OrderListViewModelDesign() : base(new NavigationServiceDesign(), new OrderServiceDesign())
+    {
+        Orders = new ObservableCollection<OrderViewModel>
+        {
+            new() { OrderNumber = "ORD-001", CustomerName = "Testbolaget AB", Total = 1250.00m },
+            new() { OrderNumber = "ORD-002", CustomerName = "Demo AB", Total = 750.00m },
+        };
+    }
+}
+
+In XAML:
+d:DataContext="{d:DesignInstance Type=vm:OrderListViewModelDesign, IsDesignTimeCreatable=True}"
+
+═══════════════════════════════════════════
+XAML / UI RULES
+═══════════════════════════════════════════
+- No code-behind in View — all logic in ViewModel
+- Bindings always use Mode=TwoWay for input fields
+- Commands bound via Command="{Binding DeleteCommand}" with CommandParameter
+- Never x:Name on controls that are only used for logic — use binding instead
+- Styles and templates in ResourceDictionary — never inline
+- UserControls always expose DependencyProperties — never bind directly to parent ViewModel
+
+═══════════════════════════════════════════
+SERVICE / REPOSITORY RULES
+═══════════════════════════════════════════
+- All services behind interfaces: IOrderService, ICustomerService etc
+- Repositories only accessed via service layer — ViewModel never touches DbContext
+- All service methods async: Task<T> GetOrdersAsync(CancellationToken ct)
+- Services registered in DI container at startup — never new'd up manually
+
+═══════════════════════════════════════════
+EF CORE / DATA RULES
+═══════════════════════════════════════════
+- DbContext never referenced in ViewModel or service constructor directly
+- Use IDbContextFactory<AppDbContext> for async operations
+- Migrations always named descriptively: AddOrderStatusColumn
+- Never use lazy loading — always explicit Include()
+- AsNoTracking() on all read-only queries
+
+═══════════════════════════════════════════
+COMPLETE VIEWMODEL EXAMPLE — use as template
+═══════════════════════════════════════════
+public class OrderListViewModel : BaseViewModel
+{
+    private readonly INavigationService _navigation;
+    private readonly IOrderService _orderService;
+
+    public OrderListViewModel(INavigationService navigation, IOrderService orderService)
+    {
+        _navigation = navigation;
+        _orderService = orderService;
+
+        LoadCommand = new AsyncRelayCommand(LoadAsync, canExecute: () => !IsLoading);
+        OpenDetailCommand = new RelayCommand<OrderViewModel>(OpenDetail, canExecute: o => o is not null);
+        DeleteCommand = new AsyncRelayCommand<OrderViewModel>(DeleteAsync, canExecute: o => o is not null && !IsLoading);
+    }
+
+    private ObservableCollection<OrderViewModel> _orders = new();
+    public ObservableCollection<OrderViewModel> Orders
+    {
+        get => _orders;
+        private set => SetProperty(ref _orders, value);
+    }
+
+    private OrderViewModel? _selectedOrder;
+    public OrderViewModel? SelectedOrder
+    {
+        get => _selectedOrder;
+        set => SetProperty(ref _selectedOrder, value);
+    }
+
+    private bool _isLoading;
+    public bool IsLoading
+    {
+        get => _isLoading;
+        set
+        {
+            if (SetProperty(ref _isLoading, value))
+            {
+                LoadCommand.NotifyCanExecuteChanged();
+                DeleteCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    private string? _errorMessage;
+    public string? ErrorMessage
+    {
+        get => _errorMessage;
+        set => SetProperty(ref _errorMessage, value);
+    }
+
+    public IAsyncRelayCommand LoadCommand { get; }
+    public IRelayCommand<OrderViewModel> OpenDetailCommand { get; }
+    public IAsyncRelayCommand<OrderViewModel> DeleteCommand { get; }
+
+    private async Task LoadAsync(CancellationToken ct)
+    {
+        IsLoading = true;
+        try
+        {
+            var result = await _orderService.GetOrdersAsync(ct);
+            Orders = new ObservableCollection<OrderViewModel>(
+                result.Select(x => new OrderViewModel(x))
+            );
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void OpenDetail(OrderViewModel? order)
+    {
+        if (order is null) return;
+        _navigation.NavigateTo<OrderDetailViewModel>(order.Id);
+    }
+
+    private async Task DeleteAsync(OrderViewModel? order, CancellationToken ct)
+    {
+        if (order is null) return;
+        IsLoading = true;
+        try
+        {
+            await _orderService.DeleteAsync(order.Id, ct);
+            await LoadAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}
