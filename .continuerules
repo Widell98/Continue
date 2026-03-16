@@ -1,0 +1,4 @@
+Always read .continue/agents.md before responding.
+Then read .continue/domains.md to identify which domain the question belongs to.
+Then read the matching domain file for specific guidelines.
+We use C# .NET MVVM. Follow all patterns defined in domain files.
