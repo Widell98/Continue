@@ -1,21 +1,27 @@
 ---
----
 name: Data Rules
-description: Use this when the question involves DbContext, EF Core, migrations or database queries
+description: >
+  Använd denna när frågan handlar om DbContext, EF Core, migrationer,
+  databasfrågor, IDbContextFactory, entity-konfigurationer, Include,
+  AsNoTracking, LINQ mot databasen eller databasschema.
 alwaysApply: false
----
-globs: ["**/*Context.cs", "**/*Migration*.cs", "**/Migrations/*.cs", "**/*Configuration.cs"]
+globs:
+  - "**/*Context.cs"
+  - "**/*Migration*.cs"
+  - "**/Migrations/*.cs"
+  - "**/*Configuration.cs"
 ---
 
 # EF Core / Data-regler
 
 ## Grundregler
-- Use IDbContextFactory<AppDbContext> for async operations
-- Never use lazy loading — always explicit Include()
-- AsNoTracking() on all read-only queries
-- Never reference DbContext in ViewModel
+- Använd `IDbContextFactory<AppDbContext>` för async-operationer
+- Aldrig lazy loading — alltid explicit `Include()`
+- `AsNoTracking()` på alla läs-frågor
+- DbContext refereras aldrig i ViewModel
 
-## DbContext pattern
+## DbContext-mönster
+```csharp
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -28,8 +34,10 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
     }
 }
+```
 
-## Entity configuration
+## Entity-konfiguration
+```csharp
 public class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
     public void Configure(EntityTypeBuilder<Order> builder)
@@ -41,8 +49,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
                .HasForeignKey(x => x.CustomerId);
     }
 }
+```
 
-## Query pattern
+## Frågemönster
+```csharp
 await using var context = await _contextFactory.CreateDbContextAsync(ct);
 var orders = await context.Orders
     .AsNoTracking()
@@ -50,14 +60,17 @@ var orders = await context.Orders
     .Where(x => x.Status == OrderStatus.Active)
     .OrderByDescending(x => x.CreatedAt)
     .ToListAsync(ct);
+```
 
-## Migrations
-- Always named descriptively: AddOrderStatusColumn, CreateCustomerTable
-- Never edit existing migrations — always add new
-- Run: dotnet ef migrations add MigrationName
-- Apply: dotnet ef database update
+## Migrationer
+- Alltid beskrivande namn: `AddOrderStatusColumn`, `CreateCustomerTable`
+- Redigera aldrig befintliga migrationer — lägg alltid till nya
+- Skapa: `dotnet ef migrations add MigrationName`
+- Applicera: `dotnet ef database update`
 
-## Naming
-- DbContext: AppDbContext eller [Module]DbContext
-- Configuration: [Entity]Configuration
-- Migration: [Action][Entity][Detail] ex: AddOrderStatusColumn
+## Namngivning
+| Typ | Mönster | Exempel |
+|-----|---------|---------|
+| DbContext | `AppDbContext` eller `[Module]DbContext` | `AppDbContext` |
+| Konfiguration | `[Entity]Configuration` | `OrderConfiguration` |
+| Migration | `[Action][Entity][Detail]` | `AddOrderStatusColumn` |
