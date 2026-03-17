@@ -1,19 +1,28 @@
 ---
-name: Service Rules  
-description: Use this when the question involves services, repositories, interfaces or dependency injection
+name: Service Rules
+description: >
+  Använd denna när frågan handlar om services, repositories, interfaces,
+  dependency injection, DI-registrering, IOrderService, service-lager,
+  CancellationToken i service-metoder eller hur ViewModel kommunicerar
+  med backend/databas via ett service-lager.
 alwaysApply: false
-globs: ["**/*Service.cs", "**/*Repository.cs", "**/*Interface.cs", "**/I*.cs"]
+globs:
+  - "**/*Service.cs"
+  - "**/*Repository.cs"
+  - "**/I*Service.cs"
+  - "**/I*Repository.cs"
 ---
 
 # Service / Repository-regler
 
 ## Grundregler
-- All services behind interfaces: IOrderService, ICustomerService
-- ViewModel never touches DbContext directly
-- Services registered in DI at startup — never new'd manually
-- All service methods async with CancellationToken
+- Alla tjänster bakom interface: `IOrderService`, `ICustomerService`
+- ViewModel rör aldrig DbContext direkt
+- Tjänster registreras i DI vid uppstart — new:as aldrig manuellt
+- Alla service-metoder är async med `CancellationToken`
 
-## Interface pattern
+## Interface-mönster
+```csharp
 public interface IOrderService
 {
     Task<IReadOnlyList<Order>> GetOrdersAsync(CancellationToken ct = default);
@@ -22,8 +31,10 @@ public interface IOrderService
     Task UpdateAsync(Order order, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
 }
+```
 
-## Implementation pattern
+## Implementationsmönster
+```csharp
 public class OrderService : IOrderService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
@@ -42,15 +53,20 @@ public class OrderService : IOrderService
             .ToListAsync(ct);
     }
 }
+```
 
-## DI registration
+## DI-registrering
+```csharp
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
+```
 
-## Naming
-- Interface: I[Name]Service
-- Implementation: [Name]Service
-- Repository interface: I[Name]Repository
-- Repository implementation: [Name]Repository
+## Namngivning
+| Typ | Mönster | Exempel |
+|-----|---------|---------|
+| Interface | `I[Name]Service` | `IOrderService` |
+| Implementation | `[Name]Service` | `OrderService` |
+| Repository interface | `I[Name]Repository` | `IOrderRepository` |
+| Repository implementation | `[Name]Repository` | `OrderRepository` |
